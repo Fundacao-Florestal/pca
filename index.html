@@ -105,7 +105,8 @@ const Core = (() => {
       const c = t[i];
       if (q) {
         if (c === '"') {
-          if (t[i+1] === '"') { f += '"'; i++; }
+          if (t[i+1] === '"' && end(t[i+2])) { f += '"'; i++; q = false; }  /* aspas no fim do texto, ex.: "food-truck" */
+          else if (t[i+1] === '"') { f += '"'; i++; }
           else if (end(t[i+1])) q = false;
           else f += '"';
         } else f += c;
@@ -637,11 +638,11 @@ function calend(){
     const big=(n,t,cl)=>`<div class="c"><b class="${cl||''}">${n}</b><span>${t}</span></div>`;
     const brM=v=>'R$ '+(v/1e6).toLocaleString('pt-BR',{maximumFractionDigits:1})+' mi';
     big_=`<div class="cards big">${big(d.cs.length,'contratações no PCA '+ano)}${big(brM(d.cs.reduce((t,c)=>t+c.total,0)),'valor estimado')}${kc?big(kc.size,'já contratadas (homologadas)','ok'):''}${R26?big(R26.filter(r=>r.sit===SIT26[2]).length,'sem contratação localizada','med'):''}${R26?big(R26.filter(r=>r.tipo!=='PCA').length,'contratos sem item no PCA','med'):''}${big(crit.size,'com pendência crítica','crit')}${big(rv.length,'a revisar (não contratadas)')}${big(pctR+'%','revisão concluída ('+feitas+' de '+rv.length+')')}${Store.canWrite?big(propP,'propostas aguardando validação'):''}</div>`;
-    const ar={};d.cs.forEach(c=>{const k=c.area||'(sem área)';const x=ar[k]||(ar[k]={n:0,p:0,cr:0,sd:0,t:0});x.n++;x.t+=c.total;if(comPend.has(c.id))x.p++;if(crit.has(c.id))x.cr++;if(destOf(c)==='')x.sd++;});
+    const ar={};rv.forEach(c=>{const k=c.area||'(sem área)';const x=ar[k]||(ar[k]={n:0,p:0,cr:0,sd:0,t:0});x.n++;x.t+=c.total;if(comPend.has(c.id))x.p++;if(crit.has(c.id))x.cr++;if(destOf(c)==='')x.sd++;});
     const mA=M.find(m=>/Revisão pelas áreas/.test(m.nome)),prazoA=mA?fmtD(mA.fim):'';
     const lemb=(k,x)=>`Assunto: Revisão do PCA ${ano} – pendências da sua área\n\nPrezados,\n\nA revisão do PCA ${ano} da área ${k} ainda tem ${x.sd} contratação(ões) sem revisão${x.cr?' e '+x.cr+' com pendência crítica':''}${prazoA?'. O prazo para as áreas é '+prazoA:''}.\n\nAcesse https://fundacao-florestal.github.io/pca/ , entre com seu e-mail @fflorestal.sp.gov.br, abra a aba Revisão, filtre pela sua área e escolha o destino de cada item. Ao final, envie as propostas à coordenação.\n\nDúvidas: NGI.\n\nObrigada.`;
     S._lemb=Object.fromEntries(Object.entries(ar).map(([k,x])=>[k,lemb(k,x)]));
-    h+=`<h3>O que falta por área</h3>${Store.canWrite?'<div class="row"><button class="s" id="lb_todas">Copiar lembrete de todas as áreas com pendência</button><span class="sub">Cola no e-mail ou no Teams. A coordenação envia.</span></div>':''}<div class="tw"><table><thead><tr><th>Área requisitante</th><th>Contratações</th><th>Com pendência</th><th>Críticas</th><th>Sem revisão</th><th></th></tr></thead><tbody>${Object.entries(ar).sort((a,b)=>b[1].p-a[1].p||b[1].t-a[1].t).map(([k,x])=>`<tr><td>${esc(k)}</td><td>${x.n}</td><td>${x.p?'<b>'+x.p+'</b>':'<span class="ok">0 ✓</span>'}</td><td>${x.cr||'0'}</td><td>${x.sd}</td><td><button class="s" data-go="${esc(k)}">Ver itens</button>${Store.canWrite&&x.sd?` <button class="s" data-lb="${esc(k)}">Copiar lembrete</button>`:''}</td></tr>`).join('')}</tbody></table></div>`;
+    h+=`<h3>O que falta por área</h3>${Store.canWrite?'<div class="row"><button class="s" id="lb_todas">Copiar lembrete de todas as áreas com pendência</button><span class="sub">Cola no e-mail ou no Teams. A coordenação envia.</span></div>':''}<div class="tw"><table><thead><tr><th>Área requisitante</th><th>A revisar</th><th>Com pendência</th><th>Críticas</th><th>Sem revisão</th><th></th></tr></thead><tbody>${Object.entries(ar).sort((a,b)=>b[1].p-a[1].p||b[1].t-a[1].t).map(([k,x])=>`<tr><td>${esc(k)}</td><td>${x.n}</td><td>${x.p?'<b>'+x.p+'</b>':'<span class="ok">0 ✓</span>'}</td><td>${x.cr||'0'}</td><td>${x.sd}</td><td><button class="s" data-go="${esc(k)}">Ver itens</button>${Store.canWrite&&x.sd?` <button class="s" data-lb="${esc(k)}">Copiar lembrete</button>`:''}</td></tr>`).join('')}</tbody></table></div>`;
   }
   return big_+h;
 }
