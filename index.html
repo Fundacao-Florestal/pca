@@ -307,7 +307,9 @@ const Store={
     let r={admin:false,validador:false,status:'',nome:''};try{r=await this.fb.papel(u.uid);}catch(e){}
     const dom=/@fflorestal\.sp\.gov\.br$/i.test(u.email||'');
     /* e-mail @fflorestal.sp.gov.br com endereço confirmado: aprovação automática como proponente */
-    if(r.status==='pendente'&&dom&&r.verificado&&!r.validador){try{await this.fb.autoAprovar(u.uid);r=await this.fb.papel(u.uid);}catch(e){}}
+    /* quem confirmou o e-mail em outra aba ou aparelho: atualiza o estado antes de decidir */
+    if(r.status==='pendente'&&dom&&!r.verificado&&!r.validador){try{await this.fb.recarregar();r=await this.fb.papel(u.uid);}catch(e){}}
+    if(r.status==='pendente'&&dom&&r.verificado&&!r.validador){try{await this.fb.autoAprovar(u.uid);r=await this.fb.papel(u.uid);}catch(e){S.msg='Seu e-mail foi confirmado, mas o acesso não pôde ser liberado automaticamente ('+(e.code||e.message)+'). Avise o NGI.';}}
     this.me={dom,verificado:r.verificado,uid:u.uid,email:u.email,name:r.nome||u.email,setor:r.setor||'',papel:r.papel||'',validador:r.validador,admin:r.admin,status:r.status};
     this.unsub.forEach(f=>f&&f());this.unsub=[];this.data.auditoria=[];this.data.propostas=[];this.usuarios=[];
     S.minhas=[];
@@ -347,6 +349,10 @@ const Store={
   async login(email,senha){
     if(!email||!senha){S.msg='Informe e-mail e senha.';draw();return;}
     try{S.msg='Entrando…';draw();await this.fb.login(email,senha);S.msg='';}catch(e){S.msg=this.erroAuth(e);}draw();window.scrollTo(0,0);
+  },
+  async recheckQuiet(){
+    if(!this.me||this.me.status!=='pendente'||!this.me.dom||!this.u)return;
+    try{await this.fb.recarregar();await this.papel(this.u);if(this.me.status==='aprovado'){S.msg='E-mail confirmado! Seu acesso foi liberado.';draw();}}catch(e){}
   },
   async recheck(){try{await this.fb.recarregar();await this.papel(this.u);S.msg=this.me.status==='aprovado'?'E-mail confirmado! Seu acesso foi liberado.':'Ainda não identificamos a confirmação. Clique no link do e-mail e tente de novo.';}catch(e){S.msg='Não foi possível verificar agora. Saia, entre de novo e tente.';}draw();},
   async reenviar(){try{await this.fb.reenviarVerif();S.msg='E-mail de confirmação reenviado para '+this.me.email+'. Confira também a caixa de spam.';}catch(e){S.msg='Não foi possível reenviar agora ('+(e.code||e.message)+'). Aguarde alguns minutos.';}draw();},
@@ -997,5 +1003,7 @@ function edit(cid){
     dlg.close();if(!Object.keys(f).length){return;}saveOv(cid,f);};
 }
 init();
+addEventListener('focus',()=>{Store.recheckQuiet();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)Store.recheckQuiet();});
 </script>
 </html>
