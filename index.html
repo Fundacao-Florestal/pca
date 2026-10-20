@@ -566,10 +566,25 @@ const DEST={'':'A definir',manter:'Manter no PCA',contratado:'Já contratado',pr
 const dLabel=(k,ano)=>k==='manter'&&ano?'Manter no PCA '+ano:k==='proximo'&&ano?'Atualizar para PCA '+(ano+1):(DEST[k]||k);
 const yrs=()=>S.ano==='todos'?[2026,2027].filter(a=>S.ds[a]):(S.ds[S.ano]?[S.ano]:[]);
 const refDe=x=>{const c=x&&x.cid?allCsAll().find(k=>k.id===x.cid):null;return c?dfdTxt(c):(x?x.ref:'');};
-const allCsAll=()=>yrs().flatMap(a=>S.ds[a].cs);
+const uidD=(ano,d)=>ano+'-D-'+String(d).replace(/[^\w]/g,'_');
+const _un=new WeakMap();
+function dfdUnits(ano){
+  const ds=S.ds[ano];if(!ds)return [];if(_un.has(ds))return _un.get(ds);
+  const M=new Map();
+  ds.cs.forEach(c=>c.itens.forEach(it=>{const d=it.dfd;if(!d)return;
+    let u=M.get(d);if(!u){u={u:true,id:uidD(ano,d),num:d,dfds:[d],ano,area:it.area||c.area,prioridade:c.prioridade,ini:c.ini,fim:c.fim,total:0,itens:[],contrs:[],contrNums:[],tits:[]};M.set(d,u);}
+    u.itens.push(it);u.total+=it.vtotal_n||0;
+    if(!u.contrs.includes(c.id)){u.contrs.push(c.id);u.contrNums.push(c.num);if(!u.tits.includes(c.titulo))u.tits.push(c.titulo);
+      const a=Core.pdate(c.ini),b=Core.pdate(u.ini);if(a&&(!b||a<b))u.ini=c.ini;const f=Core.pdate(c.fim),g=Core.pdate(u.fim);if(f&&(!g||f>g))u.fim=c.fim;}}));
+  const L=[...M.values()].map(u=>({...u,titulo:u.tits.length>1?u.tits[0]+' (e mais '+(u.tits.length-1)+' contratação(ões) deste DFD)':u.tits[0]||''}));
+  _un.set(ds,L);return L;
+}
+const allCsAll=()=>yrs().flatMap(a=>dfdUnits(a));
 const allCs=()=>allCsAll().filter(c=>!S.farea||c.area===S.farea);
 const allVals=()=>{const ok=new Set(allCs().map(c=>c.id));return yrs().flatMap(a=>S.val[a]||[]).filter(v=>ok.has(v.cid));};
-const destOf=c=>(S.dest[c.id]||{}).d||'';
+const destOf=c=>{const v=(S.dest[c.id]||{}).d;if(v)return v;
+  const ids=c.u?c.contrs:(c.dfds||[]).map(d=>uidD(c.ano,d));if(!ids.length)return '';
+  const s=new Set(ids.map(i=>(S.dest[i]||{}).d||''));const x=[...s][0];return s.size===1&&x?x:'';};
 const rascunho=c=>Cesta.get().find(x=>x.ch==='dest|'+c.id);
 function toast(m){let t=$('#toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';t.setAttribute('role','status');document.body.appendChild(t);}t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>{t.style.display='none';},3500);}
 function destSel(c){const r=rascunho(c),v=r?r.ap.v:destOf(c);return `<select data-dest="${esc(c.id)}"${r?' class="rasc"':''}>${Object.keys(DEST).map(k=>`<option value="${k}" ${v==k?'selected':''}>${dLabel(k,c.ano)}</option>`).join('')}</select>${r?`<input data-rj="${esc(c.id)}" class="${justOk(r)?'':'falta'}" placeholder="${exigeJ(r)?'Justificativa (obrigatória)':'Justificativa (opcional ao manter no PCA)'}" value="${esc(r.just||'')}"><div class="row" style="margin:4px 0 0">${justOk(r)?'<span class="st-ok">✓ Revisão guardada</span> <span class="sub">(falta enviar à coordenação)</span>':'<span class="st-pen">Falta a justificativa</span>'}<button class="s" data-rg="${esc(c.id)}">Gravar revisão</button></div>`:''}`}
@@ -669,7 +684,7 @@ function ger(){
 /* ===== Coordenação · Acompanhamento da revisão por PCA e por área ===== */
 function acompDados(ano){
   const d=S.ds[ano];if(!d)return null;
-  const P=S.prop||[],rv=aRevisar(d.cs,ano);
+  const P=S.prop||[],rv=aRevisar(dfdUnits(ano),ano);
   const pend=new Set(P.filter(p=>p.status==='pendente'&&p.ap&&p.ap.t==='dest').map(p=>String(p.cid)));
   const recus=new Set(P.filter(p=>p.status==='recusada'&&p.ap&&p.ap.t==='dest'&&!superada(p,P)).map(p=>String(p.cid)));
   const L=rv.map(c=>{const e=destOf(c)!==''?'ok':pend.has(String(c.id))?'an':'f';return {c,e,rec:e==='f'&&recus.has(String(c.id))};});
@@ -679,7 +694,7 @@ function acompDados(ano){
 }
 function lembAcomp(ano,k,x){
   const mA=marcosDe(new Date().getFullYear()+1).find(m=>/Revisão pelas áreas/.test(m.nome)),prazo=mA?fmtD(mA.fim):'';
-  return `Assunto: Revisão do PCA ${ano} – pendências da sua área\n\nPrezados(as),\n\nA área ${k} ainda tem ${x.f} contratação(ões) do PCA ${ano} sem revisão${x.an?' (e '+x.an+' aguardando validação do NGI)':''}${prazo?'. O prazo para as áreas é '+prazo:''}.\n\nAcesse https://fundacao-florestal.github.io/pca/ , entre com seu e-mail @fflorestal.sp.gov.br, abra a aba Revisão, escolha o PCA ${ano} no cabeçalho, filtre pela sua área e indique a providência de cada item. Ao final, envie as propostas à coordenação.\n\nDúvidas: NGI.\n\nAtenciosamente,\nNGI`;
+  return `Assunto: Revisão do PCA ${ano} – pendências da sua área\n\nPrezados(as),\n\nA área ${k} ainda tem ${x.f} DFD(s) do PCA ${ano} sem revisão${x.an?' (e '+x.an+' aguardando validação do NGI)':''}${prazo?'. O prazo para as áreas é '+prazo:''}.\n\nAcesse https://fundacao-florestal.github.io/pca/ , entre com seu e-mail @fflorestal.sp.gov.br, abra a aba Revisão, escolha o PCA ${ano} no cabeçalho, filtre pela sua área e indique a providência de cada item. Ao final, envie as propostas à coordenação.\n\nDúvidas: NGI.\n\nAtenciosamente,\nNGI`;
 }
 function acomp(){
   const bloco=ano=>{
@@ -777,13 +792,13 @@ function contr(){
   if(!Store.podeRevisar)return `<div class="box agora"><h2>Entre para iniciar a revisão</h2><p>${!Store.fb?'Sem conexão com o servidor. Tente recarregar.':Store.me?(Store.me.dom&&!Store.me.verificado?'Falta <b>confirmar seu e-mail</b>. Abra a tela de acesso (seu nome, no canto superior), siga as instruções e o acesso é liberado automaticamente.':'Seu cadastro ainda <b>aguarda a aprovação do NGI</b>. Assim que for aprovado, a revisão será liberada para você.'):'A revisão é feita por quem tem conta aprovada pelo NGI. Entre com seu e-mail institucional e senha, ou peça seu cadastro.'}</p>${Store.me?'':'<button class="p" data-t="cfg">Entrar ou pedir cadastro</button>'}</div>`;
   const q=(S.q||'').toLowerCase();
   const ano=S.ano==='todos'?2026:S.ano;
-  const cs=aRevisar(allCs(),ano).filter(c=>(!q||(c.num+' '+c.dfds.join(' ')+c.titulo+c.area).toLowerCase().includes(q))&&((Store.canWrite&&S.verRev)||destOf(c)==='')&&(Store.canWrite||(!emAnalise(c.id)&&!aprovadaMinha(c.id))));
+  const cs=aRevisar(allCs(),ano).filter(c=>(!q||(c.num+' '+(c.contrNums||[]).join(' ')+' '+c.titulo+c.area).toLowerCase().includes(q))&&((Store.canWrite&&S.verRev)||destOf(c)==='')&&(Store.canWrite||(!emAnalise(c.id)&&!aprovadaMinha(c.id))));
   const pc={};allVals().forEach(a=>{if(stOf(a)=='pendente')pc[a.cid]=(pc[a.cid]||0)+1;});
   const C_=Cesta.get().filter(x=>x.ch&&x.ch.startsWith('dest|')),semJ=C_.filter(x=>!justOk(x)).length;
   const rec=recusadasNovas(),ana=(S.minhas||[]).filter(x=>x.status==='pendente'&&x.ap&&x.ap.t==='dest').length;
   let h=(rec.length?`<div class="box aviso-rec" role="alert"><b>${rec.length} revisão(ões) recusada(s) pela coordenação</b><ul>${rec.map(x=>`<li><b>DFD ${esc(refDe(x))}</b> · ${esc(x.titulo||'')}<br><span class="sub">Você propôs: ${esc(x.depois||'')} · Motivo da recusa: <i>${esc((x.val&&x.val.coment)||'não informado')}</i></span></li>`).join('')}</ul><p class="sub">Os itens recusados voltaram para a lista abaixo, para você revisar de novo.</p><button class="p" id="rec_ok">Entendi</button></div>`:'')+(ana&&!Store.canWrite?`<p class="sub">${ana} revisão(ões) enviada(s) estão em análise pela coordenação e saíram desta lista até a decisão.</p>`:'')+`<details class="box guia" ${S.guiaFechada?'':'open'}><summary><b>Como usar a Revisão</b> <span class="sub">(clique para abrir ou fechar)</span></summary>
   <p class="sub"><b>Esta tela é só para revisar o que ainda não foi contratado.</b> Quando uma revisão é aprovada, o item sai desta lista. ${ano===2026&&contratados26()?'As contratações já homologadas no PNCP não aparecem aqui (veja-as no Painel gerencial).':'Os dados do PNCP ainda não foram carregados; todos os itens são listados.'}</p>
-  <p class="sub">Para cada contratação, escolha uma opção na coluna <b>Revisão</b>. Toda escolha precisa de uma justificativa, <b>exceto Manter no PCA</b>, em que ela é opcional.</p>
+  <p class="sub">Para cada DFD, escolha uma opção na coluna <b>Revisão</b>. Toda escolha precisa de uma justificativa, <b>exceto Manter no PCA</b>, em que ela é opcional.</p>
   <ul class="guia-l"><li><b>Manter no PCA ${ano}:</b> a contratação continua necessária e será realizada ainda neste exercício.</li>
   <li><b>Já contratado:</b> a contratação já foi feita (o PNCP ainda não mostra ou não foi vinculado). Na justificativa, informe o nº do processo/contrato e a data da contratação.</li>
   <li><b>Atualizar para o PCA ${ano+1}:</b> a necessidade continua, mas não será contratada neste exercício. O item será levado ao PCA seguinte. Informe o motivo (por exemplo, falta de instrução ou de recurso).</li>
@@ -791,10 +806,10 @@ function contr(){
   <li><b>Realizado por outros fins:</b> a necessidade já foi atendida por outro meio (outro processo, outro DFD ou contrato vigente). Na justificativa, informe qual.</li>
   <li><b>Cancelar – não é mais necessário:</b> a demanda deixou de existir. Explique por quê.</li></ul>
   ${Store.canWrite?'':'<p class="sub"><b>Você pode revisar vários itens e enviar depois.</b> Cada escolha vira um rascunho nesta tela. Preencha a justificativa na própria linha e, ao terminar, envie tudo de uma vez pelo botão abaixo. Use o filtro de <b>Área</b> para revisar uma área por vez.</p>'}</details>
-  ${Store.canWrite?'':`<div class="box barra"><div><b>${cs.filter(c=>rascunho(c)).length} de ${cs.length}</b> itens revisados nesta lista<br><span class="sub">${C_.length} em rascunho${semJ?' · <span class="crit">'+semJ+' sem justificativa</span>':C_.length?' · todos com justificativa':''}. Nada é enviado até você clicar no botão ao lado.<br>${S.rascSt==='salvando'?'Guardando o rascunho no servidor…':S.rascSt==='erro'?'<span class="crit">Não consegui guardar o rascunho no servidor; ele continua neste navegador.</span>':'✓ Rascunho guardado no servidor, vinculado à sua conta.'}</span></div><button class="p" id="rv_env" ${C_.length?'':'disabled'}>Enviar revisão à coordenação (${C_.length})</button></div>`}
-  <div class="row"><label class="sub">Área</label><select id="farea"><option value="">Todas as áreas</option>${[...new Set(allCsAll().map(c=>c.area).filter(Boolean))].sort().map(a=>`<option ${S.farea===a?'selected':''}>${esc(a)}</option>`).join('')}</select><input id="q" placeholder="Buscar DFD, título ou área" value="${esc(S.q)}">${Store.canWrite?`<label class="sub"><input type="checkbox" id="verrev" ${S.verRev?'checked':''}> Mostrar também os já revisados e aprovados</label>`:''}<span class="sub">${cs.length} contratações</span></div><div class="tw"><table><tr><th>DFD</th><th>Título</th><th>Área</th><th>Prio.</th><th>Início</th><th>Conclusão</th><th>Valor</th><th>Revisão</th></tr>`;
+  ${Store.canWrite?'':`<div class="box barra"><div><b>${cs.filter(c=>rascunho(c)).length} de ${cs.length}</b> DFDs revisados nesta lista<br><span class="sub">${C_.length} em rascunho${semJ?' · <span class="crit">'+semJ+' sem justificativa</span>':C_.length?' · todos com justificativa':''}. Nada é enviado até você clicar no botão ao lado.<br>${S.rascSt==='salvando'?'Guardando o rascunho no servidor…':S.rascSt==='erro'?'<span class="crit">Não consegui guardar o rascunho no servidor; ele continua neste navegador.</span>':'✓ Rascunho guardado no servidor, vinculado à sua conta.'}</span></div><button class="p" id="rv_env" ${C_.length?'':'disabled'}>Enviar revisão à coordenação (${C_.length})</button></div>`}
+  <div class="row"><label class="sub">Área</label><select id="farea"><option value="">Todas as áreas</option>${[...new Set(allCsAll().map(c=>c.area).filter(Boolean))].sort().map(a=>`<option ${S.farea===a?'selected':''}>${esc(a)}</option>`).join('')}</select><input id="q" placeholder="Buscar DFD, título ou área" value="${esc(S.q)}">${Store.canWrite?`<label class="sub"><input type="checkbox" id="verrev" ${S.verRev?'checked':''}> Mostrar também os já revisados e aprovados</label>`:''}<span class="sub">${cs.length} DFDs</span></div><div class="tw"><table><tr><th>DFD</th><th>Título</th><th>Área</th><th>Prio.</th><th>Início</th><th>Conclusão</th><th>Valor</th><th>Revisão</th></tr>`;
   cs.slice(0,600).forEach(c=>{const o=(S.ov[c.id]||{}).f||{};const ed=Object.keys(o).length;
-    h+=`<tr><td>${esc(o.num||dfdTxt(c))}${ed?' <span class="tag ok">editado</span>':''}</td><td>${esc(o.titulo||c.titulo)}</td><td>${esc(c.area)}</td><td>${esc(c.prioridade)}</td><td>${esc(o.ini||c.ini)}</td><td>${esc(o.fim||c.fim)}</td><td>${brl(c.total)}</td><td>${destSel(c)}</td></tr>`;});
+    h+=`<tr><td>${esc(o.num||dfdTxt(c))}${c.u&&c.contrNums.length?'<br><span class="sub">contr. '+esc(c.contrNums.join(', '))+'</span>':''}${ed?' <span class="tag ok">editado</span>':''}</td><td>${esc(o.titulo||c.titulo)}</td><td>${esc(c.area)}</td><td>${esc(c.prioridade)}</td><td>${esc(o.ini||c.ini)}</td><td>${esc(o.fim||c.fim)}</td><td>${brl(c.total)}</td><td>${destSel(c)}</td></tr>`;});
   return h+'</table></div>';
 }
 function cruz(){
@@ -834,7 +849,7 @@ function decideVinc(key,ok){
 /* ===== Análise 2026: tudo do PCA 2026 e das contratações de 2026 em uma única tela ===== */
 const SIT26=['Contratada (homologada)','Publicada, sem homologação','Sem contratação localizada','Contratada/publicada sem item no PCA'];
 const contratados26=()=>{const R=linhas26();return R?new Set(R.filter(r=>r.tipo==='PCA'&&r.sit===SIT26[0]).map(r=>r.cid)):null;};
-const aRevisar=(cs,ano)=>{if(ano!==2026)return cs;const k=contratados26();return k?cs.filter(c=>!k.has(c.id)):cs;};
+const aRevisar=(cs,ano)=>{if(ano!==2026)return cs;const k=contratados26();return k?cs.filter(c=>!(c.u?c.contrs.every(i=>k.has(i)):k.has(c.id))):cs;};
 const dfdTxt=c=>c&&c.dfds&&c.dfds.length?c.dfds.join(', '):(c?c.num:'');
 function linhas26(){
   const ds=S.ds[2026];if(!ds||!S.pn)return null;const P=S.pn.rows;const hoje=new Date();
@@ -944,7 +959,7 @@ function acaoSistema(t,v,ano){
   return 'Conferir a decisão e ajustar no sistema.';
 }
 function revisoesAprovadas(){
-  const csAll=[...(S.ds[2026]?S.ds[2026].cs:[]),...(S.ds[2027]?S.ds[2027].cs:[])];
+  const csAll=[...allCsAll(),...(S.ds[2026]?S.ds[2026].cs:[]),...(S.ds[2027]?S.ds[2027].cs:[])];
   const byId=id=>csAll.find(c=>String(c.id)===String(id))||{};
   const mapa=new Map();
   (S.prop||[]).filter(p=>p.status==='aprovada').forEach(p=>{
