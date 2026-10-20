@@ -665,11 +665,52 @@ function ger(){
   const cards=`<div class="cards big gcards">${GVv.map(o=>`<button class="c gv ${vis===o[0]?'on':''}" data-gv="${o[0]}" aria-pressed="${vis===o[0]}"><b>${N[o[0]]}</b><span>${o[1]}<br>${T[o[0]]}</span></button>`).join('')}</div>`;
   return `<p class="sub">PNCP coletado em ${S.pn?fmtDT(S.pn.coletado):'—'}. Dados do <b>PCA ${S.ano}</b>${E26?'':' (o cruzamento com as contratações de 2026 aparece só no PCA 2026)'}. Clique em um quadro para ver os detalhes logo abaixo.</p>`+cards+(['pend','painel'].includes(vis)?`<div class="row"><label class="sub">Área</label><select id="farea"><option value="">Todas as áreas</option>${areas.map(a=>`<option ${S.farea===a?'selected':''}>${esc(a)}</option>`).join('')}</select></div>`:'')+({a26,contratadas:a26,semcontr:a26,sempca:a26,pend,painel,cruz,pncp}[vis])();
 }
+/* ===== Coordenação · Acompanhamento da revisão por PCA e por área ===== */
+function acompDados(ano){
+  const d=S.ds[ano];if(!d)return null;
+  const P=S.prop||[],rv=aRevisar(d.cs,ano);
+  const pend=new Set(P.filter(p=>p.status==='pendente'&&p.ap&&p.ap.t==='dest').map(p=>String(p.cid)));
+  const recus=new Set(P.filter(p=>p.status==='recusada'&&p.ap&&p.ap.t==='dest'&&!superada(p,P)).map(p=>String(p.cid)));
+  const L=rv.map(c=>{const e=destOf(c)!==''?'ok':pend.has(String(c.id))?'an':'f';return {c,e,rec:e==='f'&&recus.has(String(c.id))};});
+  const A={};L.forEach(x=>{const k=x.c.area||'(sem área)';const a=A[k]||(A[k]={n:0,ok:0,an:0,f:0,v:0,vf:0});a.n++;a[x.e]++;a.v+=x.c.total;if(x.e==='f')a.vf+=x.c.total;});
+  const t=e=>L.filter(x=>x.e===e).length;
+  return {ano,L,A,tot:L.length,ok:t('ok'),an:t('an'),f:t('f'),semPN:ano===2026&&!contratados26()};
+}
+function lembAcomp(ano,k,x){
+  const mA=marcosDe(new Date().getFullYear()+1).find(m=>/Revisão pelas áreas/.test(m.nome)),prazo=mA?fmtD(mA.fim):'';
+  return `Assunto: Revisão do PCA ${ano} – pendências da sua área\n\nPrezados(as),\n\nA área ${k} ainda tem ${x.f} contratação(ões) do PCA ${ano} sem revisão${x.an?' (e '+x.an+' aguardando validação do NGI)':''}${prazo?'. O prazo para as áreas é '+prazo:''}.\n\nAcesse https://fundacao-florestal.github.io/pca/ , entre com seu e-mail @fflorestal.sp.gov.br, abra a aba Revisão, escolha o PCA ${ano} no cabeçalho, filtre pela sua área e indique a providência de cada item. Ao final, envie as propostas à coordenação.\n\nDúvidas: NGI.\n\nAtenciosamente,\nNGI`;
+}
+function acomp(){
+  const bloco=ano=>{
+    const D=acompDados(ano);
+    if(!D)return `<div class="box"><h3>PCA ${ano}</h3><p class="sub">PCA ${ano} ainda não está carregado.</p></div>`;
+    const pct=D.tot?Math.round(D.ok/D.tot*100):100,pctA=D.tot?Math.round((D.ok+D.an)/D.tot*100):100;
+    const big=(n,t,cl)=>`<div class="c"><b class="${cl||''}">${n}</b><span>${t}</span></div>`;
+    const areas=Object.entries(D.A).sort((a,b)=>b[1].f-a[1].f||b[1].an-a[1].an||a[0].localeCompare(b[0]));
+    const falt=D.L.filter(x=>x.e!=='ok').sort((a,b)=>String(a.c.area).localeCompare(String(b.c.area))||String(a.c.num).localeCompare(String(b.c.num)));
+    const sit=x=>x.e==='an'?'<span class="tag med">Aguardando validação</span>':x.rec?'<span class="tag crit">Recusada, refazer</span>':'<span class="tag">Sem proposta</span>';
+    return `<div class="box"><h3 style="margin-top:0">PCA ${ano}</h3>
+    ${D.semPN?'<p class="sub"><b>Atenção:</b> os dados do PNCP não foram carregados; os itens já contratados ainda estão entre os a revisar.</p>':''}
+    <div class="cards big">${big(D.tot,'a revisar'+(ano===2026?' (não contratadas)':''))}${big(D.ok,'avaliados e aprovados','ok')}${big(D.an,'aguardando validação do NGI','med')}${big(D.f,'faltam ser avaliados pelas áreas',D.f?'crit':'ok')}</div>
+    <div class="bar" style="margin:6px 0"><i style="width:${pct}%"></i></div>
+    <p class="sub">${pct}% concluído (aprovados). Com as propostas já enviadas, ${pctA}%.</p>
+    <div class="tw"><table><thead><tr><th>Setor responsável</th><th>A revisar</th><th>Aprovados</th><th>Aguardando validação</th><th>Faltam</th><th>% concluído</th><th></th></tr></thead><tbody>${areas.map(([k,x])=>`<tr><td>${esc(k)}</td><td>${x.n}</td><td>${x.ok}</td><td>${x.an||'0'}</td><td>${x.f?'<b>'+x.f+'</b>':'<span class="ok">0 ✓</span>'}</td><td>${Math.round(x.ok/x.n*100)}%</td><td><button class="s" data-ac-go="${ano}|${encodeURIComponent(k)}">Ver itens</button>${x.f?` <button class="s" data-ac-lb="${ano}|${encodeURIComponent(k)}">Copiar lembrete</button>`:''}</td></tr>`).join('')||'<tr><td colspan="7" class="sub">Nada a revisar neste PCA.</td></tr>'}</tbody></table></div>
+    <div class="row"><button class="s" data-ac-x="${ano}">Baixar lista de itens pendentes (CSV)</button></div>
+    <details class="box"><summary><b>Itens que ainda faltam (${falt.length})</b></summary><div class="tw"><table><thead><tr><th>DFD</th><th>Título</th><th>Setor responsável</th><th>Valor</th><th>Situação</th></tr></thead><tbody>${falt.slice(0,400).map(x=>`<tr><td><b>${esc(x.c.num)}</b></td><td>${esc((x.c.titulo||'').slice(0,90))}</td><td>${esc(x.c.area||'(sem área)')}</td><td>${brl(x.c.total)}</td><td>${sit(x)}</td></tr>`).join('')||'<tr><td colspan="5" class="sub">Tudo avaliado.</td></tr>'}</tbody></table></div>${falt.length>400?'<p class="sub">Mostrando 400; baixe o CSV para a lista completa.</p>':''}</details></div>`;
+  };
+  return `<p class="sub">Andamento da revisão das áreas, separado por PCA. "Avaliados" são os itens com decisão aprovada pelo NGI; "aguardando validação" são propostas já enviadas pelas áreas; "faltam" não têm proposta enviada.</p>`+bloco(2026)+bloco(2027);
+}
+function xAcomp(ano){
+  const D=acompDados(ano);if(!D)return;const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
+  const sit=x=>x.e==='ok'?'Avaliado e aprovado':x.e==='an'?'Aguardando validação':x.rec?'Recusada, refazer':'Sem proposta';
+  const L=D.L.slice().sort((a,b)=>String(a.c.area).localeCompare(String(b.c.area))||String(a.c.num).localeCompare(String(b.c.num)));
+  save('acompanhamento_revisao_PCA'+ano+'.csv','\ufeff'+[['PCA','DFD','Título','Setor responsável','Valor estimado','Situação','Decisão aprovada'].join(';')].concat(L.map(x=>[ano,x.c.num,x.c.titulo,x.c.area,x.c.total,sit(x),DEST[destOf(x.c)]||''].map(q).join(';'))).join('\n'));
+}
 function coord(){
-  const sub=S.csub||'prop',pp=(S.prop||[]).filter(p=>p.status==='pendente').length,cp=(Store.usuarios||[]).filter(u=>u.status==='pendente').length;
-  const subs=[['prop','Propostas'+(pp?' ('+pp+')':'')]].concat(Store.me&&Store.me.admin?[['cad','Cadastros'+(cp?' ('+cp+')':'')]]:[],[['hist','Histórico'],['dados','Exportar e importar']]);
-  const cur_=subs.some(x=>x[0]===sub)?sub:'prop';
-  return `<div class="row">${subs.map(x=>`<button class="${cur_===x[0]?'p':'s'}" data-cs="${x[0]}">${x[1]}</button>`).join('')}</div>`+({prop,cad,hist,dados}[cur_])();
+  const sub=S.csub||'acomp',pp=(S.prop||[]).filter(p=>p.status==='pendente').length,cp=(Store.usuarios||[]).filter(u=>u.status==='pendente').length;
+  const subs=[['acomp','Acompanhamento'],['prop','Propostas'+(pp?' ('+pp+')':'')]].concat(Store.me&&Store.me.admin?[['cad','Cadastros'+(cp?' ('+cp+')':'')]]:[],[['hist','Histórico'],['dados','Exportar e importar']]);
+  const cur_=subs.some(x=>x[0]===sub)?sub:'acomp';
+  return `<div class="row">${subs.map(x=>`<button class="${cur_===x[0]?'p':'s'}" data-cs="${x[0]}">${x[1]}</button>`).join('')}</div>`+({acomp,prop,cad,hist,dados}[cur_])();
 }
 function draw(){
   const nc=Cesta.get().length;
@@ -953,6 +994,9 @@ function bind(){
   const copiar=async t=>{try{await navigator.clipboard.writeText(t);toast('Lembrete copiado. Cole no e-mail.');}catch(e){const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy');toast('Lembrete copiado. Cole no e-mail.');}catch(_){toast('Não foi possível copiar.');}a.remove();}};
   document.querySelectorAll('[data-lb]').forEach(b=>b.onclick=()=>copiar((S._lemb||{})[b.dataset.lb]||''));
   const lbt=$('#lb_todas');if(lbt)lbt.onclick=()=>{const ks=Object.keys(S._lemb||{}).filter(k=>/ainda tem [1-9]/.test(S._lemb[k]));copiar(ks.map(k=>'=== '+k+' ===\n'+S._lemb[k]).join('\n\n---\n\n'));};
+  document.querySelectorAll('[data-ac-go]').forEach(b=>b.onclick=()=>{const [a,k]=b.dataset.acGo.split('|');S.ano=+a;S.farea=decodeURIComponent(k);S.tab='itens';window.scrollTo(0,0);draw();});
+  document.querySelectorAll('[data-ac-lb]').forEach(b=>b.onclick=()=>{const [a,k]=b.dataset.acLb.split('|'),D=acompDados(+a),ar=decodeURIComponent(k);if(D&&D.A[ar])copiar(lembAcomp(+a,ar,D.A[ar]));});
+  document.querySelectorAll('[data-ac-x]').forEach(b=>b.onclick=()=>xAcomp(+b.dataset.acX));
   document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{S.farea=b.dataset.go;S.tab='itens';window.scrollTo(0,0);draw();});
   const mx=$('#mi_x');if(mx)mx.onclick=()=>xMinhas();document.querySelectorAll('[data-mx]').forEach(b=>b.onclick=()=>xMinhas(b.dataset.mx));
   document.querySelectorAll('[data-modo]').forEach(b=>b.onclick=()=>{S.cfgModo=b.dataset.modo;S.msg='';draw();});
