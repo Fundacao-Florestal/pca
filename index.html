@@ -977,6 +977,58 @@ function revisoesAprovadas(){
   });
   return [...mapa.values()].sort((x,y)=>String(x.area).localeCompare(String(y.area))||String(x.ref).localeCompare(String(y.ref)));
 }
+
+/* ===== Relatório de manifestação do PCA (por ano: 2026 ou 2027) ===== */
+function relManif(ano,area){
+  const U=dfdUnits(ano);if(!U.length)return null;
+  const P=S.prop||[],k=ano===2026?contratados26():null;
+  const ult=(a,f)=>a.slice().sort((x,y)=>String(f(y)).localeCompare(String(f(x))))[0];
+  const dt=p=>String((p.val&&p.val.at)||p.at||'');
+  const L=U.filter(c=>!area||c.area===area).map(c=>{
+    const ps=P.filter(p=>String(p.cid)===String(c.id)&&p.ap&&p.ap.t==='dest');
+    const apr=ult(ps.filter(p=>p.status==='aprovada'),dt),pen=ult(ps.filter(p=>p.status==='pendente'),dt),rec=ult(ps.filter(p=>p.status==='recusada'),dt);
+    const aud=ult((S.aud||[]).filter(a=>String(a.cid)===String(c.id)&&a.acao==='Revisão do item'),a=>a.at||'');
+    const d=destOf(c),contr=!!(k&&c.contrs.every(i=>k.has(i)));
+    let sit,manif='',just='',quem='',setor='',val='',em='';
+    if(contr){sit='Contratado (homologado no PNCP) · fora da revisão';}
+    else if(d){sit='Manifestado · aprovado';manif=dLabel(d,ano);
+      if(apr){just=apr.just||'';quem=apr.prop?apr.prop.nome:'';setor=apr.prop?apr.prop.setor:'';val=apr.val?apr.val.uid:'';em=apr.val?apr.val.at:'';}
+      else if(aud){just=aud.just||'';quem='(coordenação)';setor='NGI';val=aud.uid||'';em=aud.at||'';}}
+    else if(pen){sit='Manifestado · aguardando validação do NGI';manif=pen.depois||'';just=pen.just||'';quem=pen.prop?pen.prop.nome:'';setor=pen.prop?pen.prop.setor:'';}
+    else if(rec){sit='Recusado pelo NGI · área deve refazer';manif=rec.depois||'';just=rec.just||'';quem=rec.prop?rec.prop.nome:'';setor=rec.prop?rec.prop.setor:'';val=(rec.val&&rec.val.uid)||'';em=(rec.val&&rec.val.at)||'';}
+    else sit='Sem manifestação da área';
+    return {c,ano,dfd:dfdTxt(c),contrs:(c.contrNums||[]).join(', '),titulo:c.titulo,area:c.area||'(sem área)',pri:c.prioridade||'',ini:c.ini||'',fim:c.fim||'',total:c.total,sit,manif,just,quem,setor,val,em,acao:d&&!contr?acaoSistema('dest',d,ano):''};
+  });
+  const cont=x=>L.filter(r=>r.sit.startsWith(x)).length;
+  const R=L.filter(r=>!r.sit.startsWith('Contratado'));
+  return {ano,area:area||'',L,tot:L.length,rev:R.length,apr:cont('Manifestado · aprovado'),ag:cont('Manifestado · aguardando'),rc:cont('Recusado'),sem:cont('Sem manifestação'),ct:cont('Contratado')};
+}
+function xRelManif(ano,area,fmt){
+  const D=relManif(ano,area);if(!D)return;
+  const tag='PCA'+ano+(area?'_'+area.replace(/[^\w]+/g,'_').slice(0,30):'');
+  if(fmt==='csv'){
+    const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
+    const c=['PCA','DFD','Contratações','Título','Área','Prioridade','Início previsto','Conclusão prevista','Valor estimado','Situação da manifestação','Manifestação','Justificativa','Manifestado por','Setor','Validado por','Data da validação','Ação a fazer no sistema de compras'];
+    save('relatorio_manifestacao_'+tag+'.csv','﻿'+[c.join(';')].concat(D.L.map(r=>['PCA '+ano,r.dfd,r.contrs,r.titulo,r.area,r.pri,r.ini,r.fim,r.total,r.sit,r.manif,r.just,r.quem,r.setor,r.val,r.em,r.acao].map(q).join(';'))).join('\n'));
+    return;}
+  const por={};D.L.forEach(r=>{(por[r.area]=por[r.area]||[]).push(r);});
+  const agora=new Date().toLocaleString('pt-BR');
+  const cor=r=>r.sit.startsWith('Manifestado · aprovado')?'ok':r.sit.startsWith('Sem')||r.sit.startsWith('Recusado')?'crit':r.sit.startsWith('Contratado')?'ct':'med';
+  const h=`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório de manifestação · PCA ${ano}</title><style>
+  body{font:13px/1.45 system-ui,Segoe UI,Arial,sans-serif;color:#1d2a22;margin:0;padding:24px 28px}h1{font-size:21px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 6px;border-bottom:2px solid #2d5a3d;padding-bottom:3px}
+  .pca{display:inline-block;background:#2d5a3d;color:#fff;border-radius:6px;padding:2px 10px;font-weight:700;margin-right:8px}.sub{color:#5b6b61}
+  table{border-collapse:collapse;width:100%;margin:6px 0}th,td{border:1px solid #cfd8d1;padding:4px 6px;vertical-align:top;text-align:left}th{background:#e8f0ea}
+  .cards{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.c{border:1px solid #cfd8d1;border-radius:8px;padding:6px 12px}.c b{font-size:18px;display:block}
+  .ok{color:#1f6b3a}.crit{color:#a3261b;font-weight:600}.med{color:#8a5a00}.ct{color:#555}tr{break-inside:avoid}
+  @media print{body{padding:0}h2{break-after:avoid}}</style></head><body>
+  <h1><span class="pca">PCA ${ano}</span>Relatório de manifestação das áreas requisitantes</h1>
+  <div class="sub">Fundação Florestal · Núcleo de Governança Institucional · Revisão do PCA ${ano}${area?' · Área: '+esc(area):''} · Emitido em ${esc(agora)}</div>
+  <div class="cards"><div class="c"><b>${D.tot}</b>DFDs do PCA ${ano}</div><div class="c"><b>${D.rev}</b>a revisar</div><div class="c"><b class="ok">${D.apr}</b>manifestados e aprovados</div><div class="c"><b class="med">${D.ag}</b>aguardando validação</div><div class="c"><b class="crit">${D.rc+D.sem}</b>sem manifestação válida${D.rc?' ('+D.rc+' recusado(s))':''}</div>${D.ct?`<div class="c"><b>${D.ct}</b>já contratados (PNCP)</div>`:''}</div>
+  <h2>Resumo por área</h2><table><tr><th>Área requisitante</th><th>DFDs a revisar</th><th>Aprovados</th><th>Aguardando validação</th><th>Recusados</th><th>Sem manifestação</th></tr>${Object.entries(por).sort((a,b)=>a[0].localeCompare(b[0])).map(([a,x])=>{const R=x.filter(r=>!r.sit.startsWith('Contratado'));const n=t=>x.filter(r=>r.sit.startsWith(t)).length;return `<tr><td>${esc(a)}</td><td>${R.length}</td><td>${n('Manifestado · aprovado')}</td><td>${n('Manifestado · aguardando')}</td><td>${n('Recusado')}</td><td>${n('Sem manifestação')}</td></tr>`;}).join('')}</table>
+  <h2>Manifestação por DFD</h2>${Object.entries(por).sort((a,b)=>a[0].localeCompare(b[0])).map(([a,x])=>`<h3 style="margin:14px 0 4px;font-size:13px">${esc(a)} · PCA ${ano}</h3><table><tr><th>DFD</th><th>Título</th><th>Valor</th><th>Situação</th><th>Manifestação</th><th>Justificativa</th><th>Manifestado por</th></tr>${x.map(r=>`<tr><td><b>${esc(r.dfd)}</b>${r.contrs?'<br><span class="sub">contr. '+esc(r.contrs)+'</span>':''}</td><td>${esc(r.titulo)}</td><td>${esc(brl(r.total))}</td><td class="${cor(r)}">${esc(r.sit)}</td><td>${esc(r.manif)}</td><td>${esc(r.just)}</td><td>${esc(r.quem)}${r.setor?'<br><span class="sub">'+esc(r.setor)+'</span>':''}</td></tr>`).join('')}</table>`).join('')}
+  </body></html>`;
+  save('relatorio_manifestacao_'+tag+'.html',h);
+}
 function xAprovadas(area){
   const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
   const L=revisoesAprovadas().filter(x=>!area||x.area===area);
@@ -986,7 +1038,12 @@ function xAprovadas(area){
 function dados(){
   const d=cur(),nx=S.ds[S.ano+1];
   const RA=revisoesAprovadas(),areasRA=[...new Set(RA.map(x=>x.area).filter(Boolean))].sort(),porTipo={};RA.forEach(x=>{porTipo[x.tipo]=(porTipo[x.tipo]||0)+1;});
-  return `<div class="box"><b>Revisões aprovadas · planilha para ajuste no sistema de compras</b><p class="sub">Reúne todas as revisões aprovadas (qualquer tipo), com a justificativa, quem propôs e quem validou. Cada linha traz a <b>ação a fazer no sistema</b> e colunas para a área marcar se já ajustou. A orientação é padrão; o NCP confirma o procedimento no sistema. <b>${RA.length}</b> revisão(ões) aprovada(s)${RA.length?': '+Object.entries(porTipo).map(([k,n])=>esc(k)+' ('+n+')').join(' · '):''}.</p>
+  const rmA=S.rmAno||S.ano,rmD=relManif(rmA,S.rmArea||''),rmAreas=[...new Set(dfdUnits(rmA).map(c=>c.area).filter(Boolean))].sort();
+  return `<div class="box"><b>Relatório de manifestação do PCA</b><p class="sub">Mostra, para cada DFD do PCA escolhido, o que a área manifestou (decisão e justificativa), quem propôs, quem validou e a situação. O relatório e a planilha trazem o <b>PCA ${rmA}</b> no título, no nome do arquivo e em cada linha.</p>
+  <div class="row"><select id="rm_ano">${[2026,2027].map(a=>`<option value="${a}" ${rmA===a?'selected':''}>PCA ${a}${S.ds[a]?'':' (não carregado)'}</option>`).join('')}</select><select id="rm_area"><option value="">Todas as áreas</option>${rmAreas.map(a=>`<option ${S.rmArea===a?'selected':''}>${esc(a)}</option>`).join('')}</select></div>
+  ${rmD?`<p class="sub"><b>PCA ${rmA}:</b> ${rmD.tot} DFDs · ${rmD.apr} aprovados · ${rmD.ag} aguardando validação · ${rmD.rc} recusados · ${rmD.sem} sem manifestação${rmD.ct?' · '+rmD.ct+' já contratados':''}.</p>`:''}
+  <div class="row"><button class="p" id="rm_html" ${rmD?'':'disabled'}>Baixar relatório PCA ${rmA} (para imprimir ou salvar em PDF)</button><button class="s" id="rm_csv" ${rmD?'':'disabled'}>Baixar planilha PCA ${rmA} (CSV)</button></div></div>
+  <div class="box"><b>Revisões aprovadas · planilha para ajuste no sistema de compras</b><p class="sub">Reúne todas as revisões aprovadas (qualquer tipo), com a justificativa, quem propôs e quem validou. Cada linha traz a <b>ação a fazer no sistema</b> e colunas para a área marcar se já ajustou. A orientação é padrão; o NCP confirma o procedimento no sistema. <b>${RA.length}</b> revisão(ões) aprovada(s)${RA.length?': '+Object.entries(porTipo).map(([k,n])=>esc(k)+' ('+n+')').join(' · '):''}.</p>
   <div class="row"><select id="xa_area"><option value="">Todas as áreas</option>${areasRA.map(a=>`<option ${S.xaArea===a?'selected':''}>${esc(a)}</option>`).join('')}</select><button class="p" id="xa_bt" ${RA.length?'':'disabled'}>Baixar planilha</button></div></div>
   <div class="box"><b>Conferir um PCA fora do repositório</b><p class="sub">Carrega um CSV só nesta tela, para teste. Para valer para todos, envie <code>pca_2026.csv</code> / <code>pca_2027.csv</code> ao repositório: a rotina converte e publica sozinha.</p>
   <div class="row">${[2026,2027].map(a=>`<label class="s">PCA ${a}${S.ds[a]?' ✓':''} <input type="file" accept=".csv,.txt" data-up="${a}" hidden></label>`).join('')}</div></div>
@@ -998,7 +1055,7 @@ function bind(){
   document.querySelectorAll('[data-f26]').forEach(b=>b.onclick=()=>{S.f26={...F26[b.dataset.f26]};draw();});const x=$('#x26');if(x)x.onclick=x26;
   document.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>edit(b.dataset.ed));
   const pf=$('#pf');if(pf)pf.onchange=()=>{S.pf=pf.value;draw();};const pq=$('#pq');if(pq)pq.oninput=()=>{S.pq=pq.value;draw();const n=$('#pq');if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length);}};
-  const xas=$('#xa_area');if(xas)xas.onchange=()=>{S.xaArea=xas.value;};const xab=$('#xa_bt');if(xab)xab.onclick=()=>xAprovadas(($('#xa_area')||{}).value||'');
+  const rma=$('#rm_ano');if(rma)rma.onchange=()=>{S.rmAno=+rma.value;S.rmArea='';draw();};const rmr=$('#rm_area');if(rmr)rmr.onchange=()=>{S.rmArea=rmr.value;draw();};const rmh=$('#rm_html');if(rmh)rmh.onclick=()=>xRelManif(S.rmAno||S.ano,S.rmArea||'','html');const rmc=$('#rm_csv');if(rmc)rmc.onclick=()=>xRelManif(S.rmAno||S.ano,S.rmArea||'','csv');const xas=$('#xa_area');if(xas)xas.onchange=()=>{S.xaArea=xas.value;};const xab=$('#xa_bt');if(xab)xab.onclick=()=>xAprovadas(($('#xa_area')||{}).value||'');
   document.querySelectorAll('[data-psel]').forEach(c=>c.onchange=()=>{const s_=new Set(S.sel||[]);c.checked?s_.add(c.dataset.psel):s_.delete(c.dataset.psel);S.sel=[...s_];draw();});
   const psa=$('#psall');if(psa)psa.onchange=()=>{const ids=[...document.querySelectorAll('[data-psel]')].map(c=>c.dataset.psel);S.sel=psa.checked?ids:[];draw();};
   const plo=$('#pl_ok');if(plo)plo.onclick=()=>validarLote('aprovada');const pln=$('#pl_no');if(pln)pln.onclick=()=>validarLote('recusada');
@@ -1050,7 +1107,7 @@ function bind(){
   const en=$('#expn');if(en)en.onclick=()=>save('PCA_'+S.ano+'_itens_para_'+(S.ano+1)+'.csv',Core.exportCSV(cur(),ovF(),c=>destOf(c)=='proximo'));
   const r=$('#expr');if(r)r.onclick=()=>save('Apontamentos_PCA_'+S.ano+'.csv','\uFEFFContratação;Regra;Descrição;Detalhe;Gravidade;Situação;Observação\r\n'+vals().map(a=>[a.num,a.regra,a.desc,a.det,a.sev,ST[stOf(a)],(S.aj[ajId(a.cid,a.regra)]||{}).obs||''].map(x=>String(x).replace(/;/g,',')).join(';')).join('\r\n'));
 }
-async function save(name,data){const u=URL.createObjectURL(new Blob([data],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);}
+async function save(name,data){const u=URL.createObjectURL(new Blob([data],{type:/\.html$/.test(name)?'text/html;charset=utf-8':'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);}
 function treat(cid,r){
   const a=allVals().find(x=>x.cid==cid&&x.regra==r),cur0=S.aj[ajId(cid,r)]||{};const dlg=$('#dlg');
   dlg.innerHTML=`<h3>${esc(a.num)} · ${r}</h3><p>${esc(a.desc)}<br><span class="sub">${esc(a.det)}</span></p><label>Situação</label><select id="d1">${Object.keys(ST).map(k=>`<option value="${k}" ${(cur0.status||'pendente')==k?'selected':''}>${ST[k]}</option>`).join('')}</select><label>Observação / justificativa</label><textarea id="d2" rows="3">${esc(cur0.obs||'')}</textarea><div class="row" style="margin-top:12px"><button class="p" id="d3">Salvar</button><button class="s" id="d4">Cancelar</button></div>`;
